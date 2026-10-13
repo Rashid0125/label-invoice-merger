@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Label + Invoice Merger</title>
+<script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1c1e21; --muted:#6b7280; --line:#d6d9de; --accent:#2563eb; --ok:#15803d; --warn:#b45309; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14161a; --card:#1d2026; --text:#e8eaed; --muted:#9aa0a6; --line:#33373f; --accent:#5b8def; --ok:#4ade80; --warn:#fbbf24; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  main { max-width:640px; margin:0 auto; padding:32px 16px 64px; }
+  h1 { font-size:1.5rem; margin:0 0 4px; }
+  .sub { color:var(--muted); margin:0 0 24px; font-size:.95rem; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px; }
+  .drop { display:block; border:2px dashed var(--line); border-radius:10px; padding:18px; margin-bottom:14px; cursor:pointer; text-align:center; }
+  .drop:hover, .drop.hover { border-color:var(--accent); }
+  .drop input { display:none; }
+  .drop b { display:block; }
+  .drop span { color:var(--muted); font-size:.9rem; word-break:break-all; }
+  .drop.has span { color:var(--ok); }
+  details { margin:6px 0 18px; }
+  summary { cursor:pointer; color:var(--muted); font-size:.95rem; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px 14px; margin-top:12px; }
+  .grid label { font-size:.85rem; color:var(--muted); display:flex; flex-direction:column; gap:3px; }
+  input[type=text], input[type=number], select { padding:7px 9px; border:1px solid var(--line); border-radius:7px; background:var(--bg); color:var(--text); font:inherit; width:100%; }
+  .chk { flex-direction:row !important; align-items:center; gap:8px !important; grid-column:1/-1; }
+  button { width:100%; padding:12px; border:0; border-radius:9px; background:var(--accent); color:#fff; font:inherit; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  #status { margin-top:14px; font-size:.95rem; min-height:1.4em; }
+  #status.ok { color:var(--ok); } #status.warn { color:var(--warn); } #status.err { color:#dc2626; }
+  #dl { display:none; margin-top:10px; text-align:center; padding:11px; border:1px solid var(--accent); border-radius:9px; color:var(--accent); text-decoration:none; font-weight:600; }
+  .note { margin-top:18px; color:var(--muted); font-size:.85rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Label + Invoice Merger</h1>
+  <p class="sub">Crops and rotates invoices, stamps order numbers, and interleaves them with labels: Label 1, Invoice 1, Label 2, Invoice 2…</p>
+
+  <div class="card">
+    <label class="drop" id="zLab"><input type="file" accept="application/pdf">
+      <b>1. Labels PDF</b><span>Click or drop file here</span></label>
+    <label class="drop" id="zInv"><input type="file" accept="application/pdf">
+      <b>2. Invoices PDF</b><span>Click or drop file here</span></label>
+
+    <details>
+      <summary>Advanced settings</summary>
+      <div class="grid">
+        <label>Rotate invoices
+          <select id="rotate"><option value="90">90° clockwise</option><option value="270">90° counter-clockwise</option></select></label>
+        <label>Order number prefix <input type="text" id="prefix" value="Order-"></label>
+        <label>Start number <input type="number" id="start" value="1" min="0"></label>
+        <label class="chk"><input type="checkbox" id="stamp" checked> Stamp order numbers</label>
+        <label>Crop left (pt) <input type="number" id="x0" value="30"></label>
+        <label>Crop top (pt) <input type="number" id="y0" value="12"></label>
+        <label>Crop right (pt) <input type="number" id="x1" value="565"></label>
+        <label>Crop bottom (pt) <input type="number" id="y1" value="375"></label>
+      </div>
+    </details>
+
+    <button id="go" disabled>Generate merged PDF</button>
+    <div id="status"></div>
+    <a id="dl" download="merged_labels_invoices.pdf">Download merged PDF</a>
+  </div>
+  <p class="note">🔒 Everything runs in your browser. Your PDFs are never uploaded anywhere.</p>
+</main>
+
+<script src="merge.js"></script>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const files = { lab: null, inv: null };
+  let url = null;
+
+  function setFile(key, zone, file) {
+    if (!file) return;
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) return setStatus("Please choose a PDF file.", "err");
+    files[key] = file;
+    zone.classList.add("has");
+    zone.querySelector("span").textContent = file.name;
+    $("go").disabled = !(files.lab && files.inv);
+    setStatus("");
+  }
+  function bind(zoneId, key) {
+    const zone = $(zoneId), input = zone.querySelector("input");
+    input.addEventListener("change", () => setFile(key, zone, input.files[0]));
+    zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("hover"); });
+    zone.addEventListener("dragleave", () => zone.classList.remove("hover"));
+    zone.addEventListener("drop", (e) => { e.preventDefault(); zone.classList.remove("hover"); setFile(key, zone, e.dataTransfer.files[0]); });
+  }
+  bind("zLab", "lab"); bind("zInv", "inv");
+
+  function setStatus(msg, cls) { const s = $("status"); s.textContent = msg; s.className = cls || ""; }
+
+  $("go").addEventListener("click", async () => {
+    $("go").disabled = true; $("dl").style.display = "none";
+    setStatus("Processing…");
+    try {
+      const [inv, lab] = await Promise.all([files.inv.arrayBuffer(), files.lab.arrayBuffer()]);
+      const res = await mergeLabelsInvoices(inv, lab, {
+        rotate: $("rotate").value, prefix: $("prefix").value, start: $("start").value, stamp: $("stamp").checked,
+        crop: { x0: +$("x0").value, y0: +$("y0").value, x1: +$("x1").value, y1: +$("y1").value },
+      });
+      if (url) URL.revokeObjectURL(url);
+      url = URL.createObjectURL(new Blob([res.bytes], { type: "application/pdf" }));
+      const a = $("dl"); a.href = url; a.style.display = "block";
+      setStatus(`Done: ${res.pages} pages.` + (res.warning ? " ⚠ " + res.warning : ""), res.warning ? "warn" : "ok");
+      a.click();
+    } catch (err) {
+      console.error(err); setStatus("Failed: " + err.message, "err");
+    } finally { $("go").disabled = false; }
+  });
+</script>
+</body>
+</html>
